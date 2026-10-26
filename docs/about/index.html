@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>数据与局限 · 金正 · AI 投研工程开发</title>
+<meta name="description" content="这个项目用了哪些数据、怎么处理时点、花了多少钱，以及哪些结论不能外推。">
+<link rel="preload" href="../assets/fonts/jz-display.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body class="k-about">
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="../"><span class="brand-name">金正</span><span class="brand-sub">AI 投研工程开发</span></a>
+    <nav aria-label="栏目"><a href="../rag/">检索</a><a href="../planner/">拆解</a><a href="../gate/">闸门</a><a href="../about/" class=on>关于</a></nav>
+  </div>
+  <div class="wrap"><div class="top-rule"></div></div>
+</header>
+<main class="wrap">
+<article class="article"><header><h1>数据与局限</h1><p class=meta></p><div class="ruler" aria-hidden="true"></div></header><h2 id="_1">数据</h2>
+<div class="table"><table>
+<thead>
+<tr>
+<th>数据</th>
+<th>来源</th>
+<th>什么时候可用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>研报摘要</td>
+<td>东方财富研报中心的公开详情页，2021 年 7 月以后，沪深300 / 中证500 历史成分股的个股研报</td>
+<td>入库时刻和发布日取晚的那个</td>
+</tr>
+<tr>
+<td>研报元数据（评级、目标价、EPS 预测）</td>
+<td>东方财富研报列表</td>
+<td>只有发布日，按发布日后第 2 天 00:00 算</td>
+</tr>
+<tr>
+<td>申万一级行业</td>
+<td>申万官方的行业变迁记录</td>
+<td>取不晚于当天的最后一次调整</td>
+</tr>
+<tr>
+<td>行业日收益</td>
+<td>由全市场日线（含已退市股票）自己计算，前一交易日流通市值加权</td>
+<td>当天收盘后</td>
+</tr>
+<tr>
+<td>指数增强、文本因子的回测</td>
+<td>我之前的指数增强项目（只读结果）</td>
+<td>信号日收盘后出信号，下一交易日开盘成交</td>
+</tr>
+</tbody>
+</table></div>
+<p>研报摘要是券商的内容，网站和代码仓库里只放统计结果和出处，不转载原文。</p>
+<h2 id="_2">模型和花费</h2>
+<ul>
+<li>检索用本地运行的 BGE-M3，不花钱。</li>
+<li>大模型都走 OpenRouter：Llama 3.1 8B 给 5.7 万篇摘要打标签；qwen3.8 生成评测题和作答；qwen3.7 / qwen3.8 拆研究计划。</li>
+<li>每次调用都记账，有总预算保险丝；全部调用合计 0.58 美元。</li>
+</ul>
+<h2 id="_3">规则怎么定</h2>
+<p>评测的判定规则、模型和提示词的选型规则、上线闸门的阈值，都在看结果之前写定。事后改过的有三处，都写明了原因、留了旧结果：</p>
+<ol>
+<li>上线闸门补了「大模型知识截止日」一项；</li>
+<li>检索评测的泄漏计数写错过，把正常查询找回的标准答案也算成了泄漏；</li>
+<li>作答核验把查询日期里的数字当成「没有出处」。</li>
+</ol>
+<h2 id="_4">不能外推的地方</h2>
+<ul>
+<li>检索和作答的评测题由模型按研报生成，问法比真实研究员整齐。</li>
+<li>需求拆解只有 30 道题，只够看出大的差别。</li>
+<li>行业景气的样本不到 5 年；回测不代表未来表现，这里也没有任何实盘结果。</li>
+<li>摘要里的观点是券商的，这个项目检验的是检索、转述和上线流程，不检验观点本身对不对。</li>
+</ul>
+<h2 id="_5">代码</h2>
+<p>Python，包括 MCP 服务（7 个工具）、需求拆解、检索、上线闸门和评测脚本，40 个离线测试。代码整理后放到 GitHub。</p></article>
+</main>
+<footer class="foot">
+  <div class="wrap">
+    <div class="ruler" aria-hidden="true"></div>
+    <p>研报摘要取自东方财富研报中心的公开页面，这里只放统计结果和出处，不转载原文。评测和上线的规则在看结果之前写定，事后的修改都标明是修正。全部大模型调用合计花费 0.58 美元。</p>
+    <p>金正 · <a href="mailto:zheng.jin20@student.xjtlu.edu.cn">zheng.jin20@student.xjtlu.edu.cn</a> · <a href="https://github.com/Joyzen2">github.com/Joyzen2</a> · <a href="https://joyzen2.github.io/">宏观利率研究站</a></p>
+  </div>
+</footer>
+</body>
+</html>

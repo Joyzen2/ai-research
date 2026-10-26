@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}}</title>
+<meta name="description" content="{{description}}">
+<link rel="preload" href="{{root}}assets/fonts/jz-display.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="{{root}}assets/style.css">
+</head>
+<body class="k-{{kind}}">
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="{{root}}"><span class="brand-name">金正</span><span class="brand-sub">AI 投研工程开发</span></a>
+    <nav aria-label="栏目">{{nav}}</nav>
+  </div>
+  <div class="wrap"><div class="top-rule"></div></div>
+</header>
+<main class="wrap">
+{{body}}
+</main>
+<footer class="foot">
+  <div class="wrap">
+    <div class="ruler" aria-hidden="true"></div>
+    <p>研报摘要取自东方财富研报中心的公开页面，这里只放统计结果和出处，不转载原文。评测和上线的规则在看结果之前写定，事后的修改都标明是修正。全部大模型调用合计花费 0.58 美元。</p>
+    <p>金正 · <a href="mailto:zheng.jin20@student.xjtlu.edu.cn">zheng.jin20@student.xjtlu.edu.cn</a> · <a href="https://github.com/Joyzen2">github.com/Joyzen2</a> · <a href="https://joyzen2.github.io/">宏观利率研究站</a></p>
+  </div>
+</footer>
+</body>
+</html>

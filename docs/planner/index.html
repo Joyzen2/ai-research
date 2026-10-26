@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>需求拆解与 MCP 工具：模型只负责拆计划 · 金正 · AI 投研工程开发</title>
+<meta name="description" content="研究员一句模糊需求，大模型拆成可以校验的研究计划，固定流程执行；提示词和模型用 A/B 测试、按事先写定的规则选。">
+<link rel="preload" href="../assets/fonts/jz-display.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body class="k-research">
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="../"><span class="brand-name">金正</span><span class="brand-sub">AI 投研工程开发</span></a>
+    <nav aria-label="栏目"><a href="../rag/">检索</a><a href="../planner/" class=on>拆解</a><a href="../gate/">闸门</a><a href="../about/">关于</a></nav>
+  </div>
+  <div class="wrap"><div class="top-rule"></div></div>
+</header>
+<main class="wrap">
+<article class="article"><header><h1>需求拆解与 MCP 工具：模型只负责拆计划</h1><p class="meta">研究 · 2026-10-26</p><div class="ruler" aria-hidden="true"></div></header><div class="summary">
+<p><strong>结论</strong>：能写成规则的东西，写进提示词，比换一个更贵的模型管用。</p>
+<ul>
+<li><strong>A/B</strong>：30 条模糊需求、每条跑 3 次。v1 只给计划格式，完全正确 40%；v2 再给今天的日期、时点换算规则和候选清单，93%（McNemar p = 0.0004）。</li>
+<li><strong>选模型</strong>：同样用 v2，qwen3.8 比 qwen3.7 高 10 个点（93% 对 83%），但 p = 0.375，按事先的规则留用便宜的 qwen3.7。</li>
+<li><strong>错在哪</strong>：v1 的模型把「今天」当成 2024 年 5 月之类它自己以为的日子；v2 剩下的错，是「景气」「过闸门」这类词把任务类型带偏了。</li>
+</ul>
+</div>
+<h2 id="_1">一、为什么只让模型拆计划</h2>
+<p>我之前做过一个回测审计 Agent，比较过三种做法：只按规则检查、固定流程加模型写报告、模型自己决定查什么。检查项固定的时候，让模型自己决定查什么，准确率没有提高，费用却是 3–4 倍。</p>
+<p>所以这里的分工是：模型只做规则写不全的那一步，把一句话的需求翻译成结构化的研究计划；取证、回测、评审都走固定流程，时点规则由代码执行。</p>
+<h2 id="_2">二、研究计划长什么样</h2>
+<div class="table"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>用途</th>
+<th>校验</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>task</td>
+<td>研报问答、行业景气回测、上线评审、需要澄清</td>
+<td>四种之一，每种有各自的必填项</td>
+</tr>
+<tr>
+<td>as_of</td>
+<td>问答的查询时点</td>
+<td>要在研报摘要的覆盖期内（2021 年 7 月以后）</td>
+</tr>
+<tr>
+<td>query、codes、industries、days</td>
+<td>检索的问题、股票、申万一级行业、回看天数</td>
+<td>行业名要在申万一级名单里，股票代码 6 位</td>
+</tr>
+<tr>
+<td>signal、window</td>
+<td>景气信号和窗口</td>
+<td>只能是数据字典里的 4 种信号、30 / 60 / 90 天</td>
+</tr>
+<tr>
+<td>candidate</td>
+<td>上线评审的候选</td>
+<td>要在已登记的候选里</td>
+</tr>
+<tr>
+<td>steps、assumptions</td>
+<td>拆出来的步骤；需求没说清时自己定的假设</td>
+<td>给人看，不参与执行</td>
+</tr>
+</tbody>
+</table></div>
+<p>计划用 JSON Schema 描述。校验不过，就把问题清单退回模型改一次。</p>
+<p>同样的能力也封装成了 7 个 MCP 工具，支持 MCP 的客户端都能调用：检索研报、取研报原文（查询时点之前还没入库的拒绝返回）、某个时点的行业景气分、候选列表、上线评审、数据字典与体检、计划校验。工具都是确定性的，时点规则在服务端执行，客户端绕不过去。</p>
+<h2 id="ab">三、A/B 怎么设计</h2>
+<ul>
+<li><strong>题目</strong>：我写了 30 条模糊需求，覆盖四类任务：研报问答 12 条、行业景气回测 9 条、上线评审 6 条、需要澄清 3 条（比如「帮我做个能赚钱的策略」「预测一下下个月沪深300 涨还是跌」）。每条事先写好标准答案的关键字段。</li>
+<li><strong>怎么算对</strong>：每条跑 3 次（温度 0.3），至少 2 次所有关键字段都对，这一条才算对。</li>
+<li><strong>规则（跑之前写定）</strong>：提示词——v2 完全正确率更高，且 McNemar 双侧 p &lt; 0.05，才换；模型——默认用便宜的，贵的高出至少 10 个点、且 p &lt; 0.10，才换。</li>
+<li><strong>两版提示词</strong>：都不放可以照抄的示例答案。v1 只给计划格式；v2 再加今天的日期、数据覆盖期、4 种信号、申万一级行业名单和候选清单，以及「截至某日」「某季度」「最近」这类说法怎么换算成日期和天数。</li>
+</ul>
+<h2 id="_3">四、结果</h2>
+<figure class="chart"><svg class="vz" viewBox="0 0 460 194" role="img" xmlns="http://www.w3.org/2000/svg"><title>计划完全正确的比例（每题跑 3 次，按多数算），模型都是 qwen3.8</title><desc>全部 30 题：v1 40%，v2 93%。v1 的问答类只对 17%，上线评审类全错。</desc><style>.vz text{font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;fill:#0F2340;}.vz .t2{fill:#3D5371;}.vz .t3{fill:#55697F;}.vz .grid{stroke:#DDE3EA;stroke-width:1;}.vz .base{stroke:#A7B4C2;stroke-width:1;}</style><text x="134.6" y="44.0" font-size="13" text-anchor="end" dominant-baseline="middle">研报问答（12 题）</text><text x="134.6" y="72.0" font-size="13" text-anchor="end" dominant-baseline="middle">行业景气回测（9 题）</text><text x="134.6" y="100.0" font-size="13" text-anchor="end" dominant-baseline="middle">上线评审（6 题）</text><text x="134.6" y="128.0" font-size="13" text-anchor="end" dominant-baseline="middle">需要澄清（3 题）</text><text x="134.6" y="156.0" font-size="13" text-anchor="end" dominant-baseline="middle">全部 30 题</text><text x="221.4" y="12.0" font-size="13" text-anchor="middle" dominant-baseline="middle" font-weight="600">v1：只给计划格式</text><line x1="146.6" y1="30.0" x2="146.6" y2="170.0" class="base"/><text x="146.6" y="182.0" font-size="11.5" text-anchor="middle" dominant-baseline="middle" class="t3">0</text><line x1="175.6" y1="30.0" x2="175.6" y2="170.0" class="grid"/><text x="175.6" y="182.0" font-size="11.5" text-anchor="middle" dominant-baseline="middle" class="t3">25</text><line x1="204.6" y1="30.0" x2="204.6" y2="170.0" class="grid"/><text x="204.6" y="182.0" font-size="11.5" text-anchor="middle" dominant-baseline="middle" class="t3">50</text><line x1="233.7" y1="30.0" x2="233.7" y2="170.0" class="grid"/><text x="233.7" y="182.0" font-size="11.5" text-anchor="middle" dominant-baseline="middle" class="t3">75</text><line x1="262.7" y1="30.0" x2="262.7" y2="170.0" class="grid"/><text x="262.7" y="182.0" font-size="11.5" text-anchor="middle" dominant-baseline="middle" class="t3">100</text><path d="M146.60,37.00H162.95Q165.95,37.00 165.95,40.00V48.00Q165.95,51.00 162.95,51.00H146.60Z" fill="#C5D0DB"><title>研报问答（12 题） · v1：只给计划格式：+17%</title></path><text x="169.9" y="44.0" font-size="11.5" text-anchor="start" dominant-baseline="middle" class="t2">17%</text><path d="M146.60,65.00H233.90Q236.90,65.00 236.90,68.00V76.00Q236.90,79.00 233.90,79.00H146.60Z" fill="#C5D0DB"><title>行业景气回测（9 题） · v1：只给计划格式：+78%</title></path><text x="240.9" y="72.0" font-size="11.5" text-anchor="start" dominant-baseline="middle" class="t2">78%</text><path d="M146.60,93.00H146.60Q146.60,93.00 146.60,93.00V107.00Q146.60,107.00 146.60,107.00H146.60Z" fill="#C5D0DB"><title>上线评审（6 题） · v1：只给计划格式：0%</title></path><text x="150.6" y="100.0" font-size="11.5" text-anchor="start" dominant-baseline="middle" class="t2">0%</text><path d="M146.60,121.00H259.70Q262.70,121.00 262.70,124.00V132.00Q262.70,135.00 259.70,135.00H146.60Z" fill="#C5D0DB"><title>需要澄清（3 题） · v1：只给计划格式：+100%</title></path><text x="266.7" y="128.0" font-size="11.5" text-anchor="start" dominant-baseline="middle" class="t2">100%</text><path d="M146.60,149.00H190.04Q193.04,149.00 193.04,152.00V160.00Q193.04,163.00 190.04,163.00H146.60Z" fill="#0F2340"><title>全部 30 题 · v1：只给计划格式：+40%</title></path><text x="197.0" y="156.0" font-size="11.5" text-anchor="start" dominant-baseline="middle" class="t2">40%</text><text x="385.1" y="12.0" font-size="13" text-anchor="middle" dominant-baseline="middle" font-weight="600">v2：加日期和规则</text><line x1="310.3" y1="30.0" x2="310.3" y2="170.0" class="base"/><text x="310.3" y="182.0" font-size="11.5" text-anchor="middle" dominant-baseline="middle" class="t3">0</text><line x1="339.3" y1="30.0" x2="339.3" y2="170.0" class="grid"/><text x="339.3" y="182.0" font-size="11.5" text-anchor="middle" dominant-baseline="middle" class="t3">25</text><line x1="368.3" y1="30.0" x2="368.3" y2="170.0" class="grid"/><text x="368.3" y="182.0" font-size="11.5" text-anchor="middle" dominant-baseline="middle" class="t3">50</text><line x1="397.4" y1="30.0" x2="397.4" y2="170.0" class="grid"/><text x="397.4" y="182.0" font-size="11.5" text-anchor="middle" dominant-baseline="middle" class="t3">75</text><line x1="426.4" y1="30.0" x2="426.4" y2="170.0" class="grid"/><text x="426.4" y="182.0" font-size="11.5" text-anchor="middle" dominant-baseline="middle" class="t3">100</text><path d="M310.30,37.00H413.72Q416.72,37.00 416.72,40.00V48.00Q416.72,51.00 413.72,51.00H310.30Z" fill="#C5D0DB"><title>研报问答（12 题） · v2：加日期和规则：+92%</title></path><text x="420.7" y="44.0" font-size="11.5" text-anchor="start" dominant-baseline="middle" class="t2">92%</text><path d="M310.30,65.00H410.50Q413.50,65.00 413.50,68.00V76.00Q413.50,79.00 410.50,79.00H310.30Z" fill="#C5D0DB"><title>行业景气回测（9 题） · v2：加日期和规则：+89%</title></path><text x="417.5" y="72.0" font-size="11.5" text-anchor="start" dominant-baseline="middle" class="t2">89%</text><path d="M310.30,93.00H423.40Q426.40,93.00 426.40,96.00V104.00Q426.40,107.00 423.40,107.00H310.30Z" fill="#C5D0DB"><title>上线评审（6 题） · v2：加日期和规则：+100%</title></path><text x="430.4" y="100.0" font-size="11.5" text-anchor="start" dominant-baseline="middle" class="t2">100%</text><path d="M310.30,121.00H423.40Q426.40,121.00 426.40,124.00V132.00Q426.40,135.00 423.40,135.00H310.30Z" fill="#C5D0DB"><title>需要澄清（3 题） · v2：加日期和规则：+100%</title></path><text x="430.4" y="128.0" font-size="11.5" text-anchor="start" dominant-baseline="middle" class="t2">100%</text><path d="M310.30,149.00H415.66Q418.66,149.00 418.66,152.00V160.00Q418.66,163.00 415.66,163.00H310.30Z" fill="#0F2340"><title>全部 30 题 · v2：加日期和规则：+93%</title></path><text x="422.7" y="156.0" font-size="11.5" text-anchor="start" dominant-baseline="middle" class="t2">93%</text></svg><figcaption><b>图 1　按任务类型的计划完全正确率</b><span class="fig-note">模型都是 qwen3.8；研报问答 12 题、景气回测 9 题、上线评审 6 题、需要澄清 3 题。</span></figcaption></figure>
+<div class="table"><table>
+<thead>
+<tr>
+<th>对比</th>
+<th style="text-align: right;">A</th>
+<th style="text-align: right;">B</th>
+<th style="text-align: right;">只有 A 对</th>
+<th style="text-align: right;">只有 B 对</th>
+<th style="text-align: right;">McNemar p</th>
+<th>按规则</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>提示词（qwen3.8）：v1 → v2</td>
+<td style="text-align: right;">40%</td>
+<td style="text-align: right;">93%</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">0.0004</td>
+<td>换 v2</td>
+</tr>
+<tr>
+<td>模型（v2）：qwen3.7 → qwen3.8</td>
+<td style="text-align: right;">83%</td>
+<td style="text-align: right;">93%</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">0.375</td>
+<td>留 qwen3.7</td>
+</tr>
+</tbody>
+</table></div>
+<p>v2 每条需求平均 0.00015 美元、5.5 秒，反而比 v1 便宜、快：v1 的计划有 47% 要退回重写，v2 只有 1%。</p>
+<h2 id="_4">五、错在哪</h2>
+<ul>
+<li><strong>日期</strong>：v1 的研报问答类只对了 2 条（共 12 条）。没告诉模型今天是哪天，它就用自己以为的「今天」，填出 2024-05-22、2023-10-27 这样的日期；「截至 2024 年 6 月底」也常常填成 6 月 30 日当天，按这里的规则应该是 7 月 1 日 00:00。</li>
+<li><strong>候选名</strong>：v1 不知道有哪些候选可以评审，上线评审类 6 条全错。</li>
+<li><strong>任务类型</strong>：v2 剩下的错集中在关键词上。「研报对白酒的景气判断」被当成行业景气回测，「跑完过一下闸门」被当成上线评审。这两条我没有专门再改提示词：只有 30 道题，针对错题改提示词，等于在测试题上调参。</li>
+</ul>
+<h2 id="_5">六、局限</h2>
+<ul>
+<li>30 道题只够看出大的差别。qwen3.7 和 qwen3.8 差 10 个点，可能是真的，也可能是噪音，需要更多题才分得清。</li>
+<li>题目和标准答案都是我写的，和真实研究员的说法会有差距。</li>
+<li>只比较了两个模型、两版提示词。</li>
+</ul></article>
+</main>
+<footer class="foot">
+  <div class="wrap">
+    <div class="ruler" aria-hidden="true"></div>
+    <p>研报摘要取自东方财富研报中心的公开页面，这里只放统计结果和出处，不转载原文。评测和上线的规则在看结果之前写定，事后的修改都标明是修正。全部大模型调用合计花费 0.58 美元。</p>
+    <p>金正 · <a href="mailto:zheng.jin20@student.xjtlu.edu.cn">zheng.jin20@student.xjtlu.edu.cn</a> · <a href="https://github.com/Joyzen2">github.com/Joyzen2</a> · <a href="https://joyzen2.github.io/">宏观利率研究站</a></p>
+  </div>
+</footer>
+</body>
+</html>

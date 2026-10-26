@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>研报检索与问答：只用当时已入库的研报 · 金正 · AI 投研工程开发</title>
+<meta name="description" content="5.7 万篇券商研报摘要的时点安全检索与问答：检索前按入库时刻过滤，回答逐句标出处，数字由代码核对。">
+<link rel="preload" href="../assets/fonts/jz-display.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body class="k-research">
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="../"><span class="brand-name">金正</span><span class="brand-sub">AI 投研工程开发</span></a>
+    <nav aria-label="栏目"><a href="../rag/" class=on>检索</a><a href="../planner/">拆解</a><a href="../gate/">闸门</a><a href="../about/">关于</a></nav>
+  </div>
+  <div class="wrap"><div class="top-rule"></div></div>
+</header>
+<main class="wrap">
+<article class="article"><header><h1>研报检索与问答：只用当时已入库的研报</h1><p class="meta">研究 · 2026-10-26 · 研报截至 2026-10-11</p><div class="ruler" aria-hidden="true"></div></header><div class="summary">
+<p><strong>结论</strong>：检索这一层的「偷看未来」可以用时点过滤彻底挡住；作答这一层的，要靠出处和数字核验拦下来。</p>
+<ul>
+<li><strong>时点</strong>：研报按东财的入库时刻（精确到秒）才能被检索到。64 道题、6 种召回配置、768 次检索，返回查询时点之后研报的次数是 0。</li>
+<li><strong>检索</strong>：在按研报出的题上，向量加关键词的混合召回最好：后一半 32 题 MRR 0.74，前 5 篇命中 91%；只用关键词 0.62，只用向量 0.65。</li>
+<li><strong>作答</strong>：研报入库后作答，首稿通过数字核验 95%，退回改一次后 100%；入库前作答（时点陷阱），没有一次说出只有那篇研报才有的数字。</li>
+</ul>
+</div>
+<h2 id="_1">一、问题</h2>
+<p>做历史研究，最隐蔽的前视是「当时还看不到的信息」。研报的发布日只到天，同一天晚上 6 点入库的研报，当天收盘时并不存在。大模型自己也读过大量历史资料，可能凭记忆补上材料里没有的结果。</p>
+<p>所以这里检验两件事：检索能不能保证只拿到查询时点之前的研报；作答能不能保证只说检索到的内容。</p>
+<h2 id="_2">二、数据</h2>
+<ul>
+<li><strong>范围</strong>：2013 年以来进过沪深300 或中证500 的 1,722 只股票，2021 年 7 月以后的个股研报。更早的详情页没有摘要。</li>
+<li><strong>来源</strong>：东方财富研报中心详情页里内嵌的摘要（平均约 1,200 字）和入库时刻；按每秒约 1 篇的速度抓取，可以断点续跑。</li>
+<li><strong>规模</strong>：57,321 篇研报，其中 57,143 篇有摘要；切成 190,250 个片段，每段不超过 500 字，开头加一行「公司（代码）｜机构｜日期｜《标题》」，检索时公司、机构和标题也能被找到。</li>
+<li><strong>可用时刻</strong>：入库时刻和发布日取晚的那个。入库通常比发布日晚半天左右（中位数 14 小时，九成在 20 小时以内）；个别研报入库晚了一年多，一律按入库时刻算，宁晚勿早。</li>
+<li><strong>数据字典与体检</strong>：每份数据写明来源、粒度、时点规则和已知问题；摘要库更新后自动检查缺失、重复和时刻倒挂。</li>
+</ul>
+<h2 id="_3">三、检索怎么做</h2>
+<ol>
+<li><strong>先过滤，再打分</strong>：查询时点只给日期时按当天 00:00 算，也就是开盘前，只有入库时刻早于它的片段才参与打分。这一步在任何打分之前，后面的环节碰不到未来的研报。</li>
+<li><strong>两路召回</strong>：向量检索用本地的 BGE-M3（1,024 维），关键词检索用 BM25（jieba 分词）；各取前 200 名，用 RRF 合并。关键词那一路的权重，在评测题的前一半上定。</li>
+<li><strong>按研报去重</strong>：同一篇研报只返回最相关的一段，结果直接带着可以引用的出处。</li>
+</ol>
+<h2 id="_4">四、检索评测</h2>
+<p>题目是让模型照着一篇研报写一个研究员会问的问题：写公司名，不写券商和标题。这篇研报就是标准答案，同一公司前后 7 天内的其他研报也算对。64 道题打乱后对半分：前一半比较 6 种配置、按 MRR 选一个，后一半只跑一次。</p>
+<figure class="chart"><svg class="vz" viewBox="0 0 460 232" role="img" xmlns="http://www.w3.org/2000/svg"><title>后一半 32 道题上的 MRR（越高越好，满分 1）</title><desc>只用关键词 0.62，只用向量 0.65，前一半题上选出的混合召回 0.74；六种配置的时点泄漏都是 0。</desc><style>.vz text{font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;fill:#0F2340;}.vz .t2{fill:#3D5371;}.vz .t3{fill:#55697F;}.vz .grid{stroke:#DDE3EA;stroke-width:1;}.vz .base{stroke:#A7B4C2;stroke-width:1;}</style><line x1="198.3" y1="8.0" x2="198.3" y2="188.0" class="base"/><text x="198.3" y="200.0" font-size="11.5" text-anchor="middle" dominant-baseline="middle" class="t3">0</text><line x1="255.8" y1="8.0" x2="255.8" y2="188.0" class="grid"/><text x="255.8" y="200.0" font-size="11.5" text-anchor="middle" dominant-baseline="middle" class="t3">0.2</text><line x1="313.2" y1="8.0" x2="313.2" y2="188.0" class="grid"/><text x="313.2" y="200.0" font-size="11.5" text-anchor="middle" dominant-baseline="middle" class="t3">0.4</text><line x1="370.7" y1="8.0" x2="370.7" y2="188.0" class="grid"/><text x="370.7" y="200.0" font-size="11.5" text-anchor="middle" dominant-baseline="middle" class="t3">0.6</text><text x="456.0" y="216.0" font-size="11.5" text-anchor="end" dominant-baseline="middle" class="t3">MRR：正确研报排第几的倒数取平均；深色那条是在前一半题上选出的配置</text><text x="186.3" y="17.0" font-size="13" text-anchor="end" dominant-baseline="middle">只用关键词（BM25）</text><text x="186.3" y="31.0" font-size="11.5" text-anchor="end" dominant-baseline="middle" class="t3">前 1 篇命中 50% · 前 5 篇 81%</text><path d="M198.30,15.00H374.09Q377.09,15.00 377.09,18.00V28.00Q377.09,31.00 374.09,31.00H198.30Z" fill="#C5D0DB"><title>只用关键词（BM25）：0.62</title></path><text x="383.1" y="23.0" font-size="12" text-anchor="start" dominant-baseline="middle" class="t2">0.62</text><text x="186.3" y="47.0" font-size="13" text-anchor="end" dominant-baseline="middle">只用向量（BGE-M3）</text><text x="186.3" y="61.0" font-size="11.5" text-anchor="end" dominant-baseline="middle" class="t3">前 1 篇命中 53% · 前 5 篇 81%</text><path d="M198.30,45.00H381.29Q384.29,45.00 384.29,48.00V58.00Q384.29,61.00 381.29,61.00H198.30Z" fill="#C5D0DB"><title>只用向量（BGE-M3）：0.65</title></path><text x="390.3" y="53.0" font-size="12" text-anchor="start" dominant-baseline="middle" class="t2">0.65</text><text x="186.3" y="77.0" font-size="13" text-anchor="end" dominant-baseline="middle">混合，关键词权重 0.5</text><text x="186.3" y="91.0" font-size="11.5" text-anchor="end" dominant-baseline="middle" class="t3">前 1 篇命中 66% · 前 5 篇 91%</text><path d="M198.30,75.00H408.73Q411.73,75.00 411.73,78.00V88.00Q411.73,91.00 408.73,91.00H198.30Z" fill="#0F2340"><title>混合，关键词权重 0.5：0.74</title></path><text x="417.7" y="83.0" font-size="12" text-anchor="start" dominant-baseline="middle" class="t2">0.74</text><text x="186.3" y="107.0" font-size="13" text-anchor="end" dominant-baseline="middle">混合，权重 1</text><text x="186.3" y="121.0" font-size="11.5" text-anchor="end" dominant-baseline="middle" class="t3">前 1 篇命中 66% · 前 5 篇 91%</text><path d="M198.30,105.00H414.20Q417.20,105.00 417.20,108.00V118.00Q417.20,121.00 414.20,121.00H198.30Z" fill="#C5D0DB"><title>混合，权重 1：0.76</title></path><text x="423.2" y="113.0" font-size="12" text-anchor="start" dominant-baseline="middle" class="t2">0.76</text><text x="186.3" y="137.0" font-size="13" text-anchor="end" dominant-baseline="middle">混合，权重 2</text><text x="186.3" y="151.0" font-size="11.5" text-anchor="end" dominant-baseline="middle" class="t3">前 1 篇命中 53% · 前 5 篇 91%</text><path d="M198.30,135.00H396.15Q399.15,135.00 399.15,138.00V148.00Q399.15,151.00 396.15,151.00H198.30Z" fill="#C5D0DB"><title>混合，权重 2：0.70</title></path><text x="405.2" y="143.0" font-size="12" text-anchor="start" dominant-baseline="middle" class="t2">0.70</text><text x="186.3" y="167.0" font-size="13" text-anchor="end" dominant-baseline="middle">混合，权重 3</text><text x="186.3" y="181.0" font-size="11.5" text-anchor="end" dominant-baseline="middle" class="t3">前 1 篇命中 59% · 前 5 篇 91%</text><path d="M198.30,165.00H402.68Q405.68,165.00 405.68,168.00V178.00Q405.68,181.00 402.68,181.00H198.30Z" fill="#C5D0DB"><title>混合，权重 3：0.72</title></path><text x="411.7" y="173.0" font-size="12" text-anchor="start" dominant-baseline="middle" class="t2">0.72</text></svg><figcaption><b>图 1　六种召回配置在后一半题上的表现</b><span class="fig-note">题目由 qwen3.8 按研报生成；每道题还在研报入库当天 00:00 再查一次，标准答案一次都没有出现。</span></figcaption></figure>
+<div class="table"><table>
+<thead>
+<tr>
+<th>配置（后一半 32 题）</th>
+<th style="text-align: right;">前 1 篇命中</th>
+<th style="text-align: right;">前 5 篇命中</th>
+<th style="text-align: right;">MRR</th>
+<th style="text-align: right;">时点泄漏</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>只用关键词（BM25）</td>
+<td style="text-align: right;">50%</td>
+<td style="text-align: right;">81%</td>
+<td style="text-align: right;">0.62</td>
+<td style="text-align: right;">0</td>
+</tr>
+<tr>
+<td>只用向量（BGE-M3）</td>
+<td style="text-align: right;">53%</td>
+<td style="text-align: right;">81%</td>
+<td style="text-align: right;">0.65</td>
+<td style="text-align: right;">0</td>
+</tr>
+<tr>
+<td>混合，关键词权重 0.5（前一半选出）</td>
+<td style="text-align: right;">66%</td>
+<td style="text-align: right;">91%</td>
+<td style="text-align: right;">0.74</td>
+<td style="text-align: right;">0</td>
+</tr>
+<tr>
+<td>混合，关键词权重 1</td>
+<td style="text-align: right;">66%</td>
+<td style="text-align: right;">91%</td>
+<td style="text-align: right;">0.76</td>
+<td style="text-align: right;">0</td>
+</tr>
+</tbody>
+</table></div>
+<p>有两点要说明：</p>
+<ul>
+<li>后一半题上，权重 1 的 MRR（0.76）比选出的 0.5 还高一点。但选配置用的是前一半题，这里照实报告选出的那个。</li>
+<li>另一组测试用研报核心观点的第一句话（遮掉公司名）当查询，146 道题里关键词检索 MRR 0.81，向量只有 0.33，混合 0.52。查询照抄原文时，关键词占便宜；换成研究员的问法，混合召回才显出优势。只用一种测法，会得出相反的结论。</li>
+</ul>
+<h2 id="_5">五、作答与核验</h2>
+<p>作答时，模型只能看检索到的 6 个片段，要求每个事实标 [编号]、数字照抄。代码再核对两件事：引用的编号存在；每句话里的数字，在它引用的片段里出现过（问题和查询日期里本来就有的数字除外）。不合格就把问题清单退回改一次；还不合格，就带着问题清单返回，不假装没问题。</p>
+<p>60 道题各问两次：一次在研报入库 3 天后，应该答得上；一次在研报入库当天 00:00，标准答案还不存在。</p>
+<div class="table"><table>
+<thead>
+<tr>
+<th></th>
+<th style="text-align: right;">入库后作答</th>
+<th style="text-align: right;">入库前作答（时点陷阱）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>检索到标准答案</td>
+<td style="text-align: right;">83%</td>
+<td style="text-align: right;">0%</td>
+</tr>
+<tr>
+<td>回答带出处</td>
+<td style="text-align: right;">93%</td>
+<td style="text-align: right;">77%</td>
+</tr>
+<tr>
+<td>首稿通过核验</td>
+<td style="text-align: right;">95%</td>
+<td style="text-align: right;">85%</td>
+</tr>
+<tr>
+<td>退回改一次后通过</td>
+<td style="text-align: right;">100%</td>
+<td style="text-align: right;">97%</td>
+</tr>
+<tr>
+<td>回答「研报没有提到」</td>
+<td style="text-align: right;">8%</td>
+<td style="text-align: right;">33%</td>
+</tr>
+<tr>
+<td>说出只有标准答案才有的数字</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">0 次</td>
+</tr>
+</tbody>
+</table></div>
+<p>时点陷阱下最后没通过的 2 条，都被核验拦了下来。其中一条，模型写了「爱美客 2021 年业绩高增长由新品放量与规模效应共同驱动」，检索到的片段里找不到这句话的出处，是它自己的记忆。</p>
+<p>第一轮评测时，核验器把「截至 2023-12-04」里的日期数字也当成没有出处，误判了 22 条回答。查清以后改成：查询日期里的数字不要求出处。上表是重跑的结果，第一轮的结果留着做对照。</p>
+<h2 id="_6">六、局限</h2>
+<ul>
+<li>题目由模型按研报生成，问法比真实研究员整齐；64 道题只够看出大的差别。</li>
+<li>数字核验能拦住说错的数和没有出处的数，拦不住不带数字的错误说法。</li>
+<li>摘要是券商的观点，不是事实本身。这里只检验检索和转述得对不对，不检验观点对不对。</li>
+</ul></article>
+</main>
+<footer class="foot">
+  <div class="wrap">
+    <div class="ruler" aria-hidden="true"></div>
+    <p>研报摘要取自东方财富研报中心的公开页面，这里只放统计结果和出处，不转载原文。评测和上线的规则在看结果之前写定，事后的修改都标明是修正。全部大模型调用合计花费 0.58 美元。</p>
+    <p>金正 · <a href="mailto:zheng.jin20@student.xjtlu.edu.cn">zheng.jin20@student.xjtlu.edu.cn</a> · <a href="https://github.com/Joyzen2">github.com/Joyzen2</a> · <a href="https://joyzen2.github.io/">宏观利率研究站</a></p>
+  </div>
+</footer>
+</body>
+</html>
